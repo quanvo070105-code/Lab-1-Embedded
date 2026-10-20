@@ -1,0 +1,46 @@
+/*
+ * Lab 1 - Exercise 1: Asymmetric LED Blink
+ * LED3 (DEBUG LED, PE4): ON for 1 second, OFF for 2 seconds, forever.
+ * The LED is controlled only by thread_led_blinky; main() does nothing.
+ */
+#include <zephyr/kernel.h>
+#include <zephyr/drivers/gpio.h>
+
+#define LED_ON_MS   1000
+#define LED_OFF_MS  2000
+
+#define STACK_SIZE  1024
+#define PRIORITY    7
+
+/* LED3 from the devicetree alias led0 (app.overlay) */
+static const struct gpio_dt_spec led3 = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
+
+void thread_led_blinky(void *p1, void *p2, void *p3)
+{
+    ARG_UNUSED(p1);
+    ARG_UNUSED(p2);
+    ARG_UNUSED(p3);
+
+    if (!gpio_is_ready_dt(&led3)) {
+        return;
+    }
+    gpio_pin_configure_dt(&led3, GPIO_OUTPUT_INACTIVE);
+
+    while (1) {
+        gpio_pin_set_dt(&led3, 1);   /* LED3 ON  */
+        k_msleep(LED_ON_MS);
+
+        gpio_pin_set_dt(&led3, 0);   /* LED3 OFF */
+        k_msleep(LED_OFF_MS);
+    }
+}
+
+/* Create the thread at compile time: starts automatically after boot */
+K_THREAD_DEFINE(led_blinky_id, STACK_SIZE, thread_led_blinky,
+                NULL, NULL, NULL, PRIORITY, 0, 0);
+
+int main(void)
+{
+    /* main() does not touch the LED - the thread does all the work */
+    return 0;
+}

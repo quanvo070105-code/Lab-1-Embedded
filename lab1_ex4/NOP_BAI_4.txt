@@ -1,0 +1,85 @@
+/*
+ * Lab 1 - Exercise 4: One Thread Function - Many Lights (Thread Parameters)
+ * A single thread function, thread_blink(), is instantiated three times with
+ * K_THREAD_DEFINE. Each instance receives its own struct blink_cfg via p1:
+ *   - LED3 : 2.0 s ON / 2.0 s OFF
+ *   - Y0   : 0.5 s ON / 0.5 s OFF
+ *   - Y1   : 3.0 s ON / 1.0 s OFF
+ * The three threads run concurrently and are not synchronized.
+ *
+ * Why three separate thread functions are not needed:
+ * The blinking behaviour (configure pin, ON, wait, OFF, wait, repeat) is the
+ * same for every light; only the pin and the two durations differ. These
+ * differences are data, so they are passed in through the p1 parameter. Each
+ * K_THREAD_DEFINE creates an independent thread with its own stack and its own
+ * local variables, so all three threads can safely run the same code.
+ */
+#include <zephyr/kernel.h>
+#include <zephyr/drivers/gpio.h>
+
+#define STACK_SIZE  1024
+#define PRIORITY    7
+
+struct blink_cfg {
+    struct gpio_dt_spec led;
+    int on_ms;
+    int off_ms;
+};
+
+/* One configuration per light */
+static const struct blink_cfg cfg_led3 = {
+    .led = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios), .on_ms = 2000, .off_ms = 2000,
+};
+static const struct blink_cfg cfg_y0 = {
+    .led = GPIO_DT_SPEC_GET(DT_ALIAS(led1), gpios), .on_ms = 500,  .off_ms = 500,
+};
+static const struct blink_cfg cfg_y1 = {
+    .led = GPIO_DT_SPEC_GET(DT_ALIAS(led2), gpios), .on_ms = 3000, .off_ms = 1000,
+};
+
+/* The only thread function: its behaviour depends on the cfg passed in p1 */
+void thread_blink(void *p1, void *p2, void *p3)
+{
+    ARG_UNUSED(p2);
+    ARG_UNUSED(p3);
+
+    const struct blink_cfg *cfg = (const struct blink_cfg *)p1;
+
+    if (!gpio_is_ready_dt(&cfg->led)) {
+        return;
+    }
+    gpio_pin_configure_dt(&cfg->led, GPIO_OUTPUT_INACTIVE);
+
+    while (1) {
+        gpio_pin_set_dt(&cfg->led, 1);  /* ON  */
+        k_msleep(cfg->on_ms);
+
+        gpio_pin_set_dt(&cfg->led, 0);  /* OFF */
+        k_msleep(cfg->off_ms);
+    }
+}
+
+/* Same function, three threads, three different parameters */
+K_THREAD_DEFINE(blink_led3_id, STACK_SIZE, thread_blink,
+                (void *)&cfg_led3, NULL, NULL, PRIORITY, 0, 0);
+K_THREAD_DEFINE(blink_y0_id, STACK_SIZE, thread_blink,
+                (void *)&cfg_y0, NULL, NULL, PRIORITY, 0, 0);
+K_THREAD_DEFINE(blink_y1_id, STACK_SIZE, thread_blink,
+                (void *)&cfg_y1, NULL, NULL, PRIORITY, 0, 0);
+
+int main(void)
+{
+    /* main() does not control any light - the three threads do the work */
+    return 0;
+}
+
+
+/* ---------------------------------------------------------------------------
+ * prj.conf - changed part (one line added to the sample project's prj.conf):
+ *
+ *   # Keep the SWD debug port alive while the CPU sleeps (WFI),
+ *   # so ST-LINK can connect/flash without pressing RESET
+ *   CONFIG_STM32_ENABLE_DEBUG_SLEEP_STOP=y
+ *
+ * app.overlay - unchanged.
+ * ------------------------------------------------------------------------- */

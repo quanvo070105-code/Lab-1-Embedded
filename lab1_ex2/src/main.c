@@ -1,0 +1,82 @@
+/*
+ * Lab 1 - Exercise 2: Coordinated LED3 and Output Y0
+ * - thread_led_blinky : LED3 2 s ON / 2 s OFF, publishes its state in led_state
+ * - thread_y0_follow  : polls led_state every 10 ms and copies it to Y0
+ * The two threads coordinate only through the shared variable led_state.
+ */
+#include <zephyr/kernel.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/sys/atomic.h>
+
+#define BLINK_ON_MS    2000
+#define BLINK_OFF_MS   2000
+#define POLL_MS        10
+
+#define STACK_SIZE     1024
+#define PRIORITY       7
+
+static const struct gpio_dt_spec led3 = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
+static const struct gpio_dt_spec y0   = GPIO_DT_SPEC_GET(DT_ALIAS(led1), gpios);
+
+/* Shared variable: 1 = LED3 is ON, 0 = LED3 is OFF.
+ * atomic_t guarantees that reads/writes are never torn between threads. */
+static atomic_t led_state = ATOMIC_INIT(0);
+
+/* Thread 1: the only thread that times the 2-second pattern */
+void thread_led_blinky(void *p1, void *p2, void *p3)
+{
+    ARG_UNUSED(p1);
+    ARG_UNUSED(p2);
+    ARG_UNUSED(p3);
+
+    if (!gpio_is_ready_dt(&led3)) {
+        return;
+    }
+    gpio_pin_configure_dt(&led3, GPIO_OUTPUT_INACTIVE);
+
+    while (1) {
+        gpio_pin_set_dt(&led3, 1);      /* LED3 ON          */
+        atomic_set(&led_state, 1);      /* publish: ON      */
+        k_msleep(BLINK_ON_MS);
+
+        gpio_pin_set_dt(&led3, 0);      /* LED3 OFF         */
+        atomic_set(&led_state, 0);      /* publish: OFF     */
+        k_msleep(BLINK_OFF_MS);
+    }
+}
+
+/* Thread 2: only READS led_state, never times the 2 seconds itself */
+void thread_y0_follow(void *p1, void *p2, void *p3)
+{
+    ARG_UNUSED(p1);
+    ARG_UNUSED(p2);
+    ARG_UNUSED(p3);
+
+    if (!gpio_is_ready_dt(&y0)) {
+        return;
+    }
+    gpio_pin_configure_dt(&y0, GPIO_OUTPUT_INACTIVE);
+
+    atomic_val_t last = -1;             /* force an update on the first poll */
+
+    while (1) {
+        atomic_val_t now = atomic_get(&led_state);
+
+        if (now != last) {              /* update Y0 only when the state changes */
+            gpio_pin_set_dt(&y0, (int)now);
+            last = now;
+        }
+        k_msleep(POLL_MS);              /* poll every 10 ms */
+    }
+}
+
+K_THREAD_DEFINE(led_blinky_id, STACK_SIZE, thread_led_blinky,
+                NULL, NULL, NULL, PRIORITY, 0, 0);
+K_THREAD_DEFINE(y0_follow_id, STACK_SIZE, thread_y0_follow,
+                NULL, NULL, NULL, PRIORITY, 0, 0);
+
+int main(void)
+{
+    /* main() does not control any light - the two threads do the work */
+    return 0;
+}
